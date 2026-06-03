@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>女性面接用文字起こし</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
+      background: #ede8e0;
+      color: #2d2d2d;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      max-width: 480px;
+      margin: 0 auto;
+    }
+
+    /* ── ヘッダー ── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 20px 10px;
+    }
+    .header-title {
+      font-size: 1rem;
+      font-weight: 800;
+      color: #2c4a6e;
+      letter-spacing: -0.01em;
+    }
+    .btn-settings {
+      width: 38px; height: 38px;
+      border-radius: 50%;
+      background: #fff;
+      border: none;
+      cursor: pointer;
+      font-size: 1rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+      display: flex; align-items: center; justify-content: center;
+      transition: transform 0.15s;
+    }
+    .btn-settings:hover { transform: rotate(20deg); }
+
+    /* ── タブ ── */
+    .tabs {
+      display: flex;
+      gap: 8px;
+      padding: 4px 20px 14px;
+    }
+    .tab {
+      padding: 8px 20px;
+      border-radius: 50px;
+      border: none;
+      cursor: pointer;
+      font-size: 0.82rem;
+      font-weight: 700;
+      transition: all 0.2s;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .tab.active { background: #2c4a6e; color: #fff; box-shadow: 0 2px 8px rgba(44,74,110,0.3); }
+    .tab:not(.active) { background: #ddd7cc; color: #777; }
+
+    /* ── 設定パネル ── */
+    .settings-panel {
+      background: #fff;
+      border-radius: 16px;
+      margin: 0 16px 12px;
+      padding: 16px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+      display: none;
+    }
+    .settings-panel.open { display: block; }
+    .settings-label { font-size: 0.72rem; font-weight: 700; color: #999; letter-spacing: 0.06em; margin-bottom: 8px; }
+    .api-row { display: flex; gap: 8px; }
+    .api-input {
+      flex: 1;
+      padding: 10px 12px;
+      border: 1.5px solid #e0e0e0;
+      border-radius: 10px;
+      font-size: 0.85rem;
+      font-family: monospace;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .api-input:focus { border-color: #4b8ec8; }
+    .btn-save {
+      padding: 10px 14px;
+      background: #2c4a6e;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 0.82rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .api-saved { font-size: 0.75rem; color: #4ade80; margin-top: 6px; min-height: 14px; }
+
+    /* ── コンテンツエリア ── */
+    .content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0 16px;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    /* ── ガイドカード ── */
+    .guide-card {
+      background: #fff;
+      border-radius: 20px;
+      padding: 22px 20px;
+      margin-bottom: 12px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+    }
+    .guide-title {
+      font-size: 0.95rem;
+      font-weight: 800;
+      color: #4b8ec8;
+      margin-bottom: 10px;
+    }
+    .guide-text {
+      font-size: 0.88rem;
+      line-height: 1.8;
+      color: #555;
+    }
+
+    /* ── ファイルアップロード ── */
+    .upload-area {
+      background: #fff;
+      border-radius: 20px;
+      border: 2px dashed #c8d8ea;
+      padding: 32px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s;
+      margin-bottom: 12px;
+    }
+    .upload-area:hover, .upload-area.drag-over { background: #f0f6ff; border-color: #4b8ec8; }
+    .upload-icon { font-size: 2.2rem; margin-bottom: 8px; }
+    .upload-text { font-size: 0.88rem; color: #555; font-weight: 600; }
+    .upload-hint { font-size: 0.74rem; color: #aaa; margin-top: 4px; }
+    .file-chosen {
+      font-size: 0.82rem;
+      color: #4b8ec8;
+      font-weight: 700;
+      margin-top: 10px;
+      background: #f0f6ff;
+      border-radius: 10px;
+      padding: 8px 12px;
+    }
+    #fileInput { display: none; }
+
+    /* ── プログレス ── */
+    .progress-card {
+      background: #fff;
+      border-radius: 20px;
+      padding: 20px;
+      margin-bottom: 12px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+      display: none;
+    }
+    .progress-label { font-size: 0.82rem; color: #888; margin-bottom: 10px; text-align: center; }
+    .progress-bg { height: 8px; background: #eee; border-radius: 99px; overflow: hidden; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, #4b8ec8, #6ab0e0); border-radius: 99px; width: 0%; transition: width 0.4s; }
+
+    /* ── エラー ── */
+    .error-card {
+      background: #fff5f5;
+      border: 1.5px solid #fca5a5;
+      border-radius: 16px;
+      padding: 14px 16px;
+      font-size: 0.82rem;
+      color: #c02020;
+      white-space: pre-wrap;
+      margin-bottom: 12px;
+      display: none;
+    }
+
+    /* ── 結果 ── */
+    .result-card {
+      background: #fff;
+      border-radius: 20px;
+      padding: 18px;
+      margin-bottom: 12px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+      display: none;
+    }
+    .result-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .result-title { font-size: 0.78rem; font-weight: 700; color: #aaa; letter-spacing: 0.05em; }
+    .result-tabs { display: flex; gap: 4px; }
+    .rtab {
+      padding: 4px 12px;
+      border-radius: 50px;
+      border: none;
+      font-size: 0.74rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .rtab.active { background: #2c4a6e; color: #fff; }
+    .rtab:not(.active) { background: #eee; color: #888; }
+    .result-body {
+      font-size: 0.88rem;
+      line-height: 1.85;
+      color: #333;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 280px;
+      overflow-y: auto;
+    }
+    .segment { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px solid #f3f3f3; }
+    .segment:last-child { border-bottom: none; }
+    .seg-time { font-size: 0.74rem; color: #4b8ec8; font-weight: 700; font-family: monospace; min-width: 40px; padding-top: 2px; }
+    .seg-text { font-size: 0.85rem; line-height: 1.75; }
+    .segments-body { max-height: 280px; overflow-y: auto; display: none; }
+
+    /* ── ボトムバー ── */
+    .bottom-bar {
+      padding: 14px 0 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      position: relative;
+    }
+
+    /* サイドボタン共通 */
+    .side-btn-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5px;
+      width: 90px;
+    }
+    .btn-side {
+      width: 52px; height: 52px;
+      border-radius: 50%;
+      background: #fff;
+      border: none;
+      cursor: pointer;
+      font-size: 1.2rem;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.10);
+      display: flex; align-items: center; justify-content: center;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .btn-side:hover { transform: scale(1.07); box-shadow: 0 4px 14px rgba(0,0,0,0.14); }
+    .btn-side:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
+    .side-label { font-size: 0.72rem; color: #888; font-weight: 600; }
+
+    /* メインマイクボタン */
+    .mic-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      width: 120px;
+    }
+    .btn-mic {
+      width: 72px; height: 72px;
+      border-radius: 50%;
+      background: linear-gradient(145deg, #5ba3d8, #3d7bbf);
+      border: none;
+      cursor: pointer;
+      font-size: 1.8rem;
+      box-shadow: 0 6px 20px rgba(75,142,200,0.45);
+      display: flex; align-items: center; justify-content: center;
+      transition: transform 0.15s, box-shadow 0.15s;
+      position: relative;
+    }
+    .btn-mic:hover { transform: scale(1.06); box-shadow: 0 8px 24px rgba(75,142,200,0.55); }
+    .btn-mic:active { transform: scale(0.95); }
+    .btn-mic.recording {
+      background: linear-gradient(145deg, #f87171, #ef4444);
+      box-shadow: 0 6px 20px rgba(239,68,68,0.45);
+      animation: mic-pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes mic-pulse {
+      0%, 100% { box-shadow: 0 6px 20px rgba(239,68,68,0.45); }
+      50%       { box-shadow: 0 6px 28px rgba(239,68,68,0.70); }
+    }
+    .mic-badge {
+      background: #e8e2d8;
+      border-radius: 50px;
+      padding: 3px 12px;
+      font-size: 0.72rem;
+      color: #888;
+      font-weight: 600;
+      min-height: 20px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .mic-badge.recording-badge { background: #fee2e2; color: #ef4444; }
+    .mic-label { font-size: 0.74rem; color: #aaa; font-weight: 600; }
+
+    /* ── トースト ── */
+    .toast {
+      position: fixed;
+      bottom: 90px;
+      left: 50%; transform: translateX(-50%);
+      background: #2c4a6e;
+      color: #fff;
+      padding: 10px 22px;
+      border-radius: 50px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s;
+      white-space: nowrap;
+    }
+    .toast.show { opacity: 1; }
+
+    /* ── スクロールバー非表示 ── */
+    .content::-webkit-scrollbar,
+    .result-body::-webkit-scrollbar,
+    .segments-body::-webkit-scrollbar { display: none; }
+  </style>
+</head>
+<body>
+
+  <!-- ヘッダー -->
+  <div class="header">
+    <div class="header-title">🎙 女性面接用文字起こし</div>
+    <button class="btn-settings" onclick="toggleSettings()" title="APIキー設定">⚙️</button>
+  </div>
+
+  <!-- タブ -->
+  <div class="tabs">
+    <button class="tab active" id="tabRecord" onclick="switchMode('record')">🎙 録音</button>
+    <button class="tab" id="tabFile" onclick="switchMode('file')">📁 ファイル</button>
+  </div>
+
+  <!-- 設定パネル -->
+  <div class="settings-panel" id="settingsPanel">
+    <div class="settings-label">OPENAI API キー</div>
+    <div class="api-row">
+      <input type="password" class="api-input" id="apiKeyInput" placeholder="sk-..." autocomplete="off" />
+      <button class="btn-save" onclick="saveApiKey()">保存</button>
+    </div>
+    <div class="api-saved" id="apiSaved"></div>
+  </div>
+
+  <!-- コンテンツ -->
+  <div class="content">
+
+    <!-- 録音モード：ガイド -->
+    <div class="guide-card" id="recordGuide">
+      <div class="guide-title">簡単操作で文字起こし！</div>
+      <div class="guide-text">
+        下のマイクボタンをタップして、声を録音しましょう。<br>
+        録音を止めると自動で文字起こしが始まります。<br><br>
+        ⚙️ マークからAPIキーを設定してください。
+      </div>
+    </div>
+
+    <!-- ファイルモード：アップロード -->
+    <div id="fileArea" style="display:none">
+      <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+        <div class="upload-icon">📁</div>
+        <div class="upload-text">タップして音声ファイルを選択</div>
+        <div class="upload-hint">MP3・M4A・WAV・MP4 ／ 最大24MB</div>
+      </div>
+      <div class="file-chosen" id="fileChosen" style="display:none"></div>
+      <input type="file" id="fileInput" accept="audio/*,video/mp4" />
+    </div>
+
+    <!-- プログレス -->
+    <div class="progress-card" id="progressCard">
+      <div class="progress-label" id="progressLabel">Whisper API に送信中...</div>
+      <div class="progress-bg"><div class="progress-fill" id="progressFill"></div></div>
+    </div>
+
+    <!-- エラー -->
+    <div class="error-card" id="errorCard"></div>
+
+    <!-- 結果 -->
+    <div class="result-card" id="resultCard">
+      <div class="result-header">
+        <div class="result-title">文字起こし結果</div>
+        <div class="result-tabs">
+          <button class="rtab active" onclick="switchResultTab('plain', this)">テキスト</button>
+          <button class="rtab" id="rtabTs" onclick="switchResultTab('ts', this)" style="display:none">時刻付き</button>
+        </div>
+      </div>
+      <div class="result-body" id="resultBody"></div>
+      <div class="segments-body" id="segmentsBody"></div>
+    </div>
+
+  </div>
+
+  <!-- ボトムバー -->
+  <div class="bottom-bar">
+    <!-- 左：ファイル -->
+    <div class="side-btn-wrap">
+      <button class="btn-side" id="fileBtn" onclick="openFilePicker()" title="ファイルを選択">📁</button>
+      <span class="side-label">ファイル</span>
+    </div>
+
+    <!-- 中央：マイク -->
+    <div class="mic-wrap">
+      <button class="btn-mic" id="micBtn" onclick="handleMic()">🎙</button>
+      <div class="mic-badge" id="micBadge"></div>
+      <span class="mic-label" id="micLabel">録音する</span>
+    </div>
+
+    <!-- 右：コピー / 保存 -->
+    <div class="side-btn-wrap">
+      <button class="btn-side" id="copyBtn" onclick="copyResult()" title="コピー" disabled>📋</button>
+      <span class="side-label">コピー</span>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">コピーしました</div>
+
+<script>
+  /* ─── 状態 ─── */
+  let mode = 'record';          // 'record' | 'file'
+  let audioBlob = null;
+  let mediaRecorder = null;
+  let chunks = [];
+  let timerInterval = null;
+  let elapsedSec = 0;
+  let resultData = { text: '', segments: [] };
+  let currentResultTab = 'plain';
+
+  /* ─── 起動時 ─── */
+  window.addEventListener('load', () => {
+    const saved = localStorage.getItem('openai_api_key');
+    if (saved) {
+      document.getElementById('apiKeyInput').value = saved;
+      document.getElementById('apiSaved').textContent = '✓ 保存済みのキーを読み込みました';
+    }
+    switchMode('record');
+  });
+
+  /* ─── 設定パネル ─── */
+  function toggleSettings() {
+    document.getElementById('settingsPanel').classList.toggle('open');
+  }
+  function saveApiKey() {
+    const key = document.getElementById('apiKeyInput').value.trim();
+    if (!key) return;
+    localStorage.setItem('openai_api_key', key);
+    const el = document.getElementById('apiSaved');
+    el.textContent = '✓ 保存しました';
+    setTimeout(() => { el.textContent = ''; }, 2000);
+  }
+
+  /* ─── モード切替 ─── */
+  function switchMode(m) {
+    mode = m;
+    document.getElementById('tabRecord').classList.toggle('active', m === 'record');
+    document.getElementById('tabFile').classList.toggle('active', m === 'file');
+    document.getElementById('recordGuide').style.display = m === 'record' ? 'block' : 'none';
+    document.getElementById('fileArea').style.display = m === 'file' ? 'block' : 'none';
+    document.getElementById('micBtn').style.display = m === 'record' ? 'flex' : 'none';
+    document.getElementById('micLabel').style.display = m === 'record' ? 'block' : 'none';
+    document.getElementById('micBadge').style.display = m === 'record' ? 'flex' : 'none';
+    if (m === 'file') {
+      document.getElementById('micBtn').style.display = 'none';
+    } else {
+      document.getElementById('micBtn').style.display = 'flex';
+    }
+  }
+
+  /* ─── ファイル選択 ─── */
+  function openFilePicker() {
+    if (mode !== 'file') {
+      switchMode('file');
+      setTimeout(() => document.getElementById('fileInput').click(), 100);
+    } else {
+      document.getElementById('fileInput').click();
+    }
+  }
+
+  const fileInput = document.getElementById('fileInput');
+  const uploadArea = document.getElementById('uploadArea');
+
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) setFile(fileInput.files[0]);
+  });
+  uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('drag-over'); });
+  uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('drag-over'));
+  uploadArea.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadArea.classList.remove('drag-over');
+    if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+  });
+
+  function setFile(file) {
+    audioBlob = file;
+    const fc = document.getElementById('fileChosen');
+    fc.style.display = 'block';
+    fc.textContent = `📎 ${file.name}  (${(file.size / 1024 / 1024).toFixed(1)} MB)`;
+    startTranscribe();
+  }
+
+  /* ─── 録音 ─── */
+  async function handleMic() {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      chunks = [];
+      mediaRecorder = new MediaRecorder(stream);
+      mediaRecorder.addEventListener('dataavailable', e => chunks.push(e.data));
+      mediaRecorder.addEventListener('stop', () => {
+        stream.getTracks().forEach(t => t.stop());
+        audioBlob = new Blob(chunks, { type: 'audio/webm' });
+        setRecordingUI(false);
+        startTranscribe();
+      });
+      mediaRecorder.start();
+      setRecordingUI(true);
+    } catch {
+      showError('マイクへのアクセスが許可されていません。ブラウザの設定を確認してください。');
+    }
+  }
+
+  function setRecordingUI(isRec) {
+    const btn = document.getElementById('micBtn');
+    const badge = document.getElementById('micBadge');
+    const label = document.getElementById('micLabel');
+    btn.classList.toggle('recording', isRec);
+    btn.textContent = isRec ? '⏹' : '🎙';
+    badge.classList.toggle('recording-badge', isRec);
+    if (isRec) {
+      elapsedSec = 0;
+      badge.textContent = '00:00';
+      label.textContent = '停止する';
+      timerInterval = setInterval(() => {
+        elapsedSec++;
+        const m = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
+        const s = String(elapsedSec % 60).padStart(2, '0');
+        badge.textContent = `${m}:${s}`;
+      }, 1000);
+    } else {
+      clearInterval(timerInterval);
+      badge.textContent = '';
+      label.textContent = '録音する';
+    }
+  }
+
+  /* ─── 文字起こし ─── */
+  async function startTranscribe() {
+    const apiKey = document.getElementById('apiKeyInput').value.trim();
+    if (!apiKey) { showError('⚙️ マークからAPIキーを設定してください'); return; }
+    if (!audioBlob) return;
+
+    showError('');
+    document.getElementById('resultCard').style.display = 'none';
+    document.getElementById('copyBtn').disabled = true;
+    showProgress(true, 0, 'Whisper API に送信中...');
+
+    const form = new FormData();
+    form.append('api_key', apiKey);
+    form.append('language', 'ja');
+    const fname = audioBlob instanceof File ? audioBlob.name : 'recording.webm';
+    form.append('audio', audioBlob, fname);
+
+    let pct = 0;
+    const iv = setInterval(() => {
+      pct = Math.min(pct + 1.5, 88);
+      document.getElementById('progressFill').style.width = pct + '%';
+    }, 400);
+
+    try {
+      const res = await fetch('/transcribe', { method: 'POST', body: form });
+      clearInterval(iv);
+      const data = await res.json();
+      if (!res.ok) { showError(data.error || '不明なエラーが発生しました'); showProgress(false); return; }
+      showProgress(true, 100, '完了！');
+      setTimeout(() => showProgress(false), 700);
+      showResult(data);
+    } catch (err) {
+      clearInterval(iv);
+      showError('通信エラー: ' + err.message);
+      showProgress(false);
+    }
+  }
+
+  function showProgress(visible, pct, label) {
+    const card = document.getElementById('progressCard');
+    card.style.display = visible ? 'block' : 'none';
+    if (pct !== undefined) document.getElementById('progressFill').style.width = pct + '%';
+    if (label) document.getElementById('progressLabel').textContent = label;
+  }
+
+  function showError(msg) {
+    const el = document.getElementById('errorCard');
+    el.style.display = msg ? 'block' : 'none';
+    el.textContent = msg;
+  }
+
+  function showResult(data) {
+    resultData = data;
+    const hasTs = data.segments && data.segments.length > 0;
+    document.getElementById('resultBody').textContent = data.text;
+    document.getElementById('rtabTs').style.display = hasTs ? 'inline-block' : 'none';
+    if (hasTs) {
+      document.getElementById('segmentsBody').innerHTML = data.segments.map(s =>
+        `<div class="segment"><span class="seg-time">${s.timestamp}</span><span class="seg-text">${s.text}</span></div>`
+      ).join('');
+    }
+    switchResultTab('plain', document.querySelector('.rtab'));
+    document.getElementById('resultCard').style.display = 'block';
+    document.getElementById('copyBtn').disabled = false;
+    document.getElementById('resultCard').scrollIntoView({ behavior: 'smooth' });
+  }
+
+  function switchResultTab(tab, el) {
+    currentResultTab = tab;
+    document.querySelectorAll('.rtab').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('resultBody').style.display = tab === 'plain' ? 'block' : 'none';
+    document.getElementById('segmentsBody').style.display = tab === 'ts' ? 'block' : 'none';
+  }
+
+  function getResultText() {
+    if (currentResultTab === 'ts' && resultData.segments.length) {
+      return resultData.segments.map(s => `[${s.timestamp}] ${s.text}`).join('\n');
+    }
+    return resultData.text;
+  }
+
+  function copyResult() {
+    navigator.clipboard.writeText(getResultText()).then(() => {
+      const t = document.getElementById('toast');
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 2000);
+    });
+  }
+
+  /* 保存ボタンは右サイドに追加する場合のために残しておく */
+  function downloadText() {
+    const blob = new Blob([getResultText()], { type: 'text/plain;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `文字起こし_${new Date().toLocaleDateString('ja-JP').replace(/\//g, '-')}.txt`;
+    a.click();
+  }
+</script>
+</body>
+</html>

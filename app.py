@@ -15,6 +15,16 @@ SERVER_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 CHUNK_DURATION_SEC = 10 * 60  # 10分
 
 
+def has_ffmpeg() -> bool:
+    """ffmpegとffprobeが使えるか確認"""
+    try:
+        subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
+        subprocess.run(["ffprobe", "-version"], capture_output=True, check=True)
+        return True
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return False
+
+
 def get_audio_duration(file_path: str) -> float:
     """ffprobeで音声の長さ（秒）を取得"""
     result = subprocess.run(
@@ -52,6 +62,36 @@ def split_audio_ffmpeg(file_path: str, duration: float) -> list:
 
 def transcribe_audio(file_path: str, client: OpenAI, language: str = "ja") -> tuple:
     """音声ファイルを文字起こし。長時間ファイルはffmpegで自動チャンク分割する。"""
+    # ffmpegがない環境（ローカルWindowsなど）はそのままWhisperに送る
+    if not has_ffmpeg():
+        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+        if file_size_mb > 24:
+            return "", [], (
+                f"ファイルサイズが {file_size_mb:.1f}MB です。"
+                "25MB を超えるファイルを分割するには ffmpeg が必要です。"
+                "Railwayサーバーをご利用ください。"
+            )
+        try:
+            with open(file_path, "rb") as f:
+                transcript = client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=f,
+                    language=language,
+                    response_format="verbose_json",
+                )
+            segments = []
+            if hasattr(transcript, "segments") and transcript.segments:
+                for seg in transcript.segments:
+                    minutes = int(seg.start // 60)
+                    seconds = int(seg.start % 60)
+                    segments.append({
+                        "timestamp": f"{minutes:02d}:{seconds:02d}",
+                        "text": seg.text.strip(),
+                    })
+            return transcript.text, segments, None
+        except Exception as e:
+            return "", [], f"文字起こしに失敗しました: {str(e)}"
+
     try:
         duration = get_audio_duration(file_path)
     except Exception as e:

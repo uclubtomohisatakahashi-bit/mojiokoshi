@@ -6,6 +6,9 @@ from openai import OpenAI
 
 app = Flask(__name__, static_folder=".")
 
+# サーバー側のAPIキー（Railway環境変数 OPENAI_API_KEY）
+SERVER_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+
 # 10分ごとにチャンク分割（ミリ秒）
 CHUNK_DURATION_MS = 10 * 60 * 1000
 # チャンク書き出し時のビットレート（低くすることでファイルサイズを削減）
@@ -69,14 +72,21 @@ def index():
     return send_from_directory(".", "index.html")
 
 
+@app.route("/api-key-status")
+def api_key_status():
+    """サーバー側にAPIキーが設定されているか返す"""
+    return jsonify({"has_server_key": bool(SERVER_API_KEY)})
+
+
 @app.route("/transcribe", methods=["POST"])
 def transcribe():
-    api_key = request.form.get("api_key", "").strip()
+    # サーバー側のキーを優先、なければフォームから取得
+    api_key = SERVER_API_KEY or request.form.get("api_key", "").strip()
     audio_file = request.files.get("audio")
     language = request.form.get("language", "ja")
 
     if not api_key:
-        return jsonify({"error": "APIキーを入力してください"}), 400
+        return jsonify({"error": "APIキーが設定されていません。管理者にお問い合わせください。"}), 400
     if not audio_file:
         return jsonify({"error": "音声ファイルを選択してください"}), 400
 

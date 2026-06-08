@@ -310,7 +310,7 @@
       <path d="M5.5 27c0-5.247 4.253-9.5 9.5-9.5s9.5 4.253 9.5 9.5" stroke="#E8849A" stroke-width="1.8" stroke-linecap="round"/>
     </svg>
     <span class="header-title">女性面接用文字起こし</span>
-    <button class="btn-settings" onclick="toggleSettings()">⚙️</button>
+    <button class="btn-settings" id="settingsBtn" onclick="toggleSettings()">⚙️</button>
   </div>
 
   <!-- タブ -->
@@ -342,7 +342,7 @@
       <div class="hint-section" id="hintSection">
         <div class="hint-card">
           <span class="hint-icon">✨</span>
-          <span class="hint-text">面接の録音を開始すると、<br>文字起こし結果がここに表示されます。<br><br>⚙️ からAPIキーを設定してください。</span>
+          <span class="hint-text">面接の録音を開始すると、<br>文字起こし結果がここに表示されます。<br><br><span id="hintApiNote">⚙️ からAPIキーを設定してください。</span></span>
         </div>
       </div>
 
@@ -433,13 +433,33 @@
   })();
 
   /* ─── 起動時 ─── */
-  window.addEventListener('load', () => {
-    const saved = localStorage.getItem('openai_api_key');
-    if (saved) {
-      document.getElementById('apiKeyInput').value = saved;
-      document.getElementById('apiSaved').textContent = '✓ 保存済みのキーを読み込みました';
-    }
+  window.addEventListener('load', async () => {
     switchMode('record');
+
+    // サーバー側にAPIキーがあるか確認
+    try {
+      const res = await fetch('/api-key-status');
+      const data = await res.json();
+      if (data.has_server_key) {
+        // サーバー側にキーがある → 設定ボタンと入力欄を非表示
+        document.getElementById('settingsBtn').style.display = 'none';
+        document.getElementById('settingsPanel').style.display = 'none';
+        document.getElementById('hintApiNote').style.display = 'none';
+      } else {
+        // サーバー側にキーがない → ローカル保存のキーを読み込む
+        const saved = localStorage.getItem('openai_api_key');
+        if (saved) {
+          document.getElementById('apiKeyInput').value = saved;
+          document.getElementById('apiSaved').textContent = '✓ 保存済みのキーを読み込みました';
+        }
+      }
+    } catch {
+      // ローカル起動時はフォールバック
+      const saved = localStorage.getItem('openai_api_key');
+      if (saved) {
+        document.getElementById('apiKeyInput').value = saved;
+      }
+    }
   });
 
   /* ─── 設定 ─── */

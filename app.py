@@ -1,6 +1,8 @@
 import os
 import tempfile
 import math
+import json
+import subprocess
 from flask import Flask, request, jsonify, send_from_directory
 from openai import OpenAI
 
@@ -9,37 +11,59 @@ app = Flask(__name__, static_folder=".")
 # サーバー側のAPIキー（Railway環境変数 OPENAI_API_KEY）
 SERVER_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
-# 10分ごとにチャンク分割（ミリ秒）
-CHUNK_DURATION_MS = 10 * 60 * 1000
-# チャンク書き出し時のビットレート（低くすることでファイルサイズを削減）
-CHUNK_BITRATE = "64k"
+# 1チャンクの長さ（秒）
+CHUNK_DURATION_SEC = 10 * 60  # 10分
 
 
-def transcribe_audio(file_path: str, client: OpenAI, language: str = "ja") -> tuple[str, list]:
-    """音声ファイルを文字起こし。25MB超えの場合は自動でチャンク分割する。"""
+def get_audio_duration(file_path: str) -> float:
+    """ffprobeで音声の長さ（秒）を取得"""
+    result = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", file_path],
+        capture_output=True, text=True
+    )
+    info = json.loads(result.stdout)
+    return float(info["format"]["duration"])
+
+
+def split_audio_ffmpeg(file_path: str, duration: float) -> list:
+    """ffmpegで音声を10分ごとに分割。チャンクファイルパスと開始秒のリストを返す"""
+    chunks = []
+    total_chunks = math.ceil(duration / CHUNK_DURATION_SEC)
+
+    for i in range(total_chunks):
+        start_sec = i * CHUNK_DURATION_SEC
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+            chunk_path = tmp.name
+
+        subprocess.run([
+            "ffmpeg", "-y",
+            "-i", file_path,
+            "-ss", str(start_sec),
+            "-t", str(CHUNK_DURATION_SEC),
+            "-acodec", "mp3",
+            "-ab", "64k",
+            chunk_path
+        ], capture_output=True)
+
+        chunks.append((chunk_path, start_sec))
+
+    return chunks
+
+
+def transcribe_audio(file_path: str, client: OpenAI, language: str = "ja") -> tuple:
+    """音声ファイルを文字起こし。長時間ファイルはffmpegで自動チャンク分割する。"""
     try:
-        from pydub import AudioSegment
-        audio = AudioSegment.from_file(file_path)
+        duration = get_audio_duration(file_path)
     except Exception as e:
         return "", [], f"音声ファイルの読み込みに失敗しました: {str(e)}"
 
-    duration_ms = len(audio)
-    total_chunks = math.ceil(duration_ms / CHUNK_DURATION_MS)
-
+    chunks = split_audio_ffmpeg(file_path, duration)
     full_text = ""
     all_segments = []
 
-    for i in range(total_chunks):
-        start_ms = i * CHUNK_DURATION_MS
-        end_ms = min(start_ms + CHUNK_DURATION_MS, duration_ms)
-        chunk = audio[start_ms:end_ms]
-
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
-            chunk.export(tmp.name, format="mp3", bitrate=CHUNK_BITRATE)
-            tmp_path = tmp.name
-
+    for chunk_path, offset_sec in chunks:
         try:
-            with open(tmp_path, "rb") as f:
+            with open(chunk_path, "rb") as f:
                 transcript = client.audio.transcriptions.create(
                     model="whisper-1",
                     file=f,
@@ -50,7 +74,6 @@ def transcribe_audio(file_path: str, client: OpenAI, language: str = "ja") -> tu
             full_text += transcript.text.strip() + " "
 
             if hasattr(transcript, "segments") and transcript.segments:
-                offset_sec = start_ms / 1000
                 for seg in transcript.segments:
                     actual_sec = seg.start + offset_sec
                     minutes = int(actual_sec // 60)
@@ -60,9 +83,9 @@ def transcribe_audio(file_path: str, client: OpenAI, language: str = "ja") -> tu
                         "text": seg.text.strip(),
                     })
         except Exception as e:
-            return "", [], f"チャンク{i + 1}/{total_chunks} の文字起こしに失敗しました: {str(e)}"
+            return "", [], f"文字起こしに失敗しました: {str(e)}"
         finally:
-            os.unlink(tmp_path)
+            os.unlink(chunk_path)
 
     return full_text.strip(), all_segments, None
 

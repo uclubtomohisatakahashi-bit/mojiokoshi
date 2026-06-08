@@ -1,11 +1,67 @@
 import os
 import tempfile
+import math
 from flask import Flask, request, jsonify, send_from_directory
 from openai import OpenAI
 
 app = Flask(__name__, static_folder=".")
 
-MAX_FILE_SIZE_MB = 24
+# 10分ごとにチャンク分割（ミリ秒）
+CHUNK_DURATION_MS = 10 * 60 * 1000
+# チャンク書き出し時のビットレート（低くすることでファイルサイズを削減）
+CHUNK_BITRATE = "64k"
+
+
+def transcribe_audio(file_path: str, client: OpenAI, language: str = "ja") -> tuple[str, list]:
+    """音声ファイルを文字起こし。25MB超えの場合は自動でチャンク分割する。"""
+    try:
+        from pydub import AudioSegment
+        audio = AudioSegment.from_file(file_path)
+    except Exception as e:
+        return "", [], f"音声ファイルの読み込みに失敗しました: {str(e)}"
+
+    duration_ms = len(audio)
+    total_chunks = math.ceil(duration_ms / CHUNK_DURATION_MS)
+
+    full_text = ""
+    all_segments = []
+
+    for i in range(total_chunks):
+        start_ms = i * CHUNK_DURATION_MS
+        end_ms = min(start_ms + CHUNK_DURATION_MS, duration_ms)
+        chunk = audio[start_ms:end_ms]
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+            chunk.export(tmp.name, format="mp3", bitrate=CHUNK_BITRATE)
+            tmp_path = tmp.name
+
+        try:
+            with open(tmp_path, "rb") as f:
+                transcript = client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=f,
+                    language=language,
+                    response_format="verbose_json",
+                )
+
+            full_text += transcript.text.strip() + " "
+
+            if hasattr(transcript, "segments") and transcript.segments:
+                offset_sec = start_ms / 1000
+                for seg in transcript.segments:
+                    actual_sec = seg.start + offset_sec
+                    minutes = int(actual_sec // 60)
+                    seconds = int(actual_sec % 60)
+                    all_segments.append({
+                        "timestamp": f"{minutes:02d}:{seconds:02d}",
+                        "text": seg.text.strip(),
+                    })
+        except Exception as e:
+            return "", [], f"チャンク{i + 1}/{total_chunks} の文字起こしに失敗しました: {str(e)}"
+        finally:
+            os.unlink(tmp_path)
+
+    return full_text.strip(), all_segments, None
 
 
 @app.route("/")
@@ -24,21 +80,6 @@ def transcribe():
     if not audio_file:
         return jsonify({"error": "音声ファイルを選択してください"}), 400
 
-    # ファイルサイズチェック（Whisper API の上限は 25MB）
-    audio_file.seek(0, 2)
-    size_mb = audio_file.tell() / (1024 * 1024)
-    audio_file.seek(0)
-
-    if size_mb > MAX_FILE_SIZE_MB:
-        return jsonify({
-            "error": (
-                f"ファイルサイズが {size_mb:.1f}MB です。"
-                f"Whisper API の上限は 25MB のため、"
-                f"ファイルを圧縮するか分割してください。\n"
-                f"ヒント: 音声をモノラル・低ビットレートに変換すると小さくなります。"
-            )
-        }), 400
-
     ext = os.path.splitext(audio_file.filename)[1].lower() or ".mp3"
     client = OpenAI(api_key=api_key)
 
@@ -47,27 +88,10 @@ def transcribe():
         tmp_path = tmp.name
 
     try:
-        with open(tmp_path, "rb") as f:
-            transcript = client.audio.transcriptions.create(
-                model="whisper-1",
-                file=f,
-                language=language,
-                response_format="verbose_json",
-            )
-        # セグメントにタイムスタンプを付けて返す
-        segments = []
-        if hasattr(transcript, "segments") and transcript.segments:
-            for seg in transcript.segments:
-                minutes = int(seg.start // 60)
-                seconds = int(seg.start % 60)
-                segments.append({
-                    "timestamp": f"{minutes:02d}:{seconds:02d}",
-                    "text": seg.text.strip(),
-                })
-        return jsonify({
-            "text": transcript.text,
-            "segments": segments,
-        })
+        text, segments, error = transcribe_audio(tmp_path, client, language)
+        if error:
+            return jsonify({"error": error}), 500
+        return jsonify({"text": text, "segments": segments})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
@@ -75,18 +99,19 @@ def transcribe():
 
 
 if __name__ == "__main__":
-    import webbrowser
-    import threading
+    port = int(os.environ.get("PORT", 5000))
+    is_local = os.environ.get("RAILWAY_ENVIRONMENT") is None
 
-    def open_browser():
-        import time
-        time.sleep(1)
-        webbrowser.open("http://localhost:5000")
+    if is_local:
+        import webbrowser, threading
+        threading.Thread(
+            target=lambda: __import__("time").sleep(1) or webbrowser.open(f"http://localhost:{port}"),
+            daemon=True
+        ).start()
+        print("=" * 50)
+        print("  女性面接用文字起こし を起動しました")
+        print(f"  http://localhost:{port}")
+        print("  終了: Ctrl+C")
+        print("=" * 50)
 
-    threading.Thread(target=open_browser, daemon=True).start()
-    print("=" * 50)
-    print("  無限文字起こし アプリを起動しました")
-    print("  ブラウザが自動で開きます")
-    print("  終了するには Ctrl+C を押してください")
-    print("=" * 50)
-    app.run(debug=False, port=5000)
+    app.run(host="0.0.0.0", port=port, debug=False)
